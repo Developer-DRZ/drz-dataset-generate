@@ -79,26 +79,88 @@ CENARIOS_COMPRA = [
     }
 ]
 
-def gerar_resposta(mensagens, temperatura=0.2, max_tokens=None):
+def formatar_historico(historico, perspectiva):
     """
-    Gera uma resposta usando o Google Gemini AI.
+    Formata o histórico de conversa com a perspectiva correta (comprador ou vendedor).
+    
+    Args:
+        historico: Lista de mensagens no formato {"role": "comprador"|"vendedor", "content": "mensagem"}
+        perspectiva: "comprador" ou "vendedor" - quem está recebendo o histórico
+        
+    Returns:
+        Lista formatada de mensagens como ['User: mensagem', 'Assistant: resposta', ...]
     """
-    ultima_mensagem = mensagens[-1]["content"]
+    historico_formatado = []
     
-    prompt = f"""INSTRUÇÕES IMPORTANTES:
-    1. Responda APENAS em português do Brasil
-    2. Seja direto e objetivo
-    3. Use linguagem profissional
-    4. Mantenha o contexto da conversa
-    5. {' Use no máximo 2 frases curtas' if max_tokens else ''}
+    for msg in historico:
+        if perspectiva == "comprador":
+            # Para o comprador, o vendedor é o "User" e o comprador é o "Assistant"
+            if msg["role"] == "vendedor":
+                historico_formatado.append(f"User: {msg['content']}")
+            else:
+                historico_formatado.append(f"Assistant: {msg['content']}")
+        else:  # perspectiva = vendedor
+            # Para o vendedor, o comprador é o "User" e o vendedor é o "Assistant"
+            if msg["role"] == "comprador":
+                historico_formatado.append(f"User: {msg['content']}")
+            else:
+                historico_formatado.append(f"Assistant: {msg['content']}")
     
-    REGRAS ADICIONAIS PARA VENDEDOR:
-    1. SEMPRE forneça informações técnicas e preços (mesmo que aproximados)
-    2. NUNCA diga que não tem acesso à informação
-    3. Seja sempre positivo e prestativo
-    4. Use valores de mercado realistas
+    return historico_formatado
+
+def criar_prompt_com_historico(historico, mensagem_atual, tipo_agente, regras_sistema):
+    """
+    Cria um prompt formatado com histórico de conversa e a mensagem atual.
     
-    RESPONDA: {ultima_mensagem}"""
+    Args:
+        historico: Lista formatada de mensagens ['User: msg', 'Assistant: resp', ...]
+        mensagem_atual: A mensagem mais recente do usuário
+        tipo_agente: "comprador" ou "vendedor"
+        regras_sistema: Regras específicas para este agente
+        
+    Returns:
+        Prompt formatado com histórico e mensagem atual
+    """
+    # Template do prompt com histórico
+    template = f"""<|AgenteAtual|>{tipo_agente}<|AgenteAtual|>
+
+{regras_sistema}
+
+Use the conversation history to provide context and respond to the user's message.
+
+Conversation History:
+{historico}
+
+Latest User Message:
+{mensagem_atual}"""
+
+    return template
+
+def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, temperatura=0.2, max_tokens=None):
+    """
+    Gera uma resposta usando o Google Gemini AI com histórico de conversa.
+    
+    Args:
+        historico: Lista de mensagens no formato {"role": "comprador"|"vendedor", "content": "mensagem"}
+        mensagem_atual: A mensagem mais recente do usuário
+        tipo_agente: "comprador" ou "vendedor"
+        regras_sistema: Regras específicas para este agente
+        temperatura: Controla a aleatoriedade das respostas
+        max_tokens: Se definido, limita o tamanho da resposta
+        
+    Returns:
+        Texto da resposta gerada
+    """
+    # Formata o histórico conforme a perspectiva do agente
+    perspectiva = tipo_agente  # O agente que está gerando a resposta
+    historico_formatado = formatar_historico(historico, perspectiva)
+    
+    # Cria o prompt com histórico e mensagem atual
+    prompt = criar_prompt_com_historico(historico_formatado, mensagem_atual, tipo_agente, regras_sistema)
+    
+    # Adiciona instruções específicas de formatação, se necessário
+    if max_tokens:
+        prompt += "\n\nIMPORTANTE: Use no máximo 2 frases curtas na sua resposta."
     
     try:
         response = model.generate_content(
@@ -116,7 +178,7 @@ def gerar_resposta(mensagens, temperatura=0.2, max_tokens=None):
 
 def gerar_conversa():
     """
-    Gera uma conversa entre um comprador e um vendedor.
+    Gera uma conversa entre um comprador e um vendedor, mantendo o histórico da conversa.
     """
     # Seleciona um cenário aleatório
     cenario = random.choice(CENARIOS_COMPRA)
@@ -136,33 +198,33 @@ def gerar_conversa():
         valor = random.choice(cenario["valores"])
         contexto = cenario["contexto"].format(categoria=categoria, valor=valor)
 
-    mensagens_comprador = [
-        {"role": "system", "content": f"""Você é um cliente interessado em comprar um carro.
-        
-        {contexto}
-        
-        REGRAS OBRIGATÓRIAS:
-        1. Faça APENAS UMA pergunta por vez
-        2. Seja direto e objetivo
-        3. Use português formal
-        4. Mantenha o contexto da conversa
-        5. Siga uma sequência lógica de perguntas"""}
-    ]
+    # Regras específicas para cada agente
+    regras_comprador = f"""Você é um cliente interessado em comprar um carro.
     
-    mensagens_vendedor = [
-        {"role": "system", "content": """Você é um vendedor de carros experiente.
-        
-        REGRAS OBRIGATÓRIAS:
-        1. Forneça SEMPRE informações precisas e valores
-        2. Use português formal
-        3. Seja objetivo (máximo 2 frases)
-        4. Mantenha tom profissional e positivo
-        5. NUNCA diga que não tem acesso à informação
-        6. Use valores de mercado realistas"""}
-    ]
+{contexto}
 
-    conversa = []
-    num_turnos = 3
+REGRAS OBRIGATÓRIAS:
+1. Faça APENAS UMA pergunta por vez
+2. Seja direto e objetivo
+3. Use português formal
+4. Mantenha o contexto da conversa
+5. Siga uma sequência lógica de perguntas"""
+    
+    regras_vendedor = """Você é um vendedor de carros experiente.
+
+REGRAS OBRIGATÓRIAS:
+1. Forneça SEMPRE informações precisas e valores
+2. Use português formal
+3. Seja objetivo (máximo 2 frases)
+4. Mantenha tom profissional e positivo
+5. NUNCA diga que não tem acesso à informação
+6. Use valores de mercado realistas"""
+
+    # Histórico de conversa completo
+    historico_conversa = []
+    
+    # Número de turnos de conversa
+    num_turnos = 6  # Aumentado para 6 turnos conforme solicitado
 
     print(f"Gerando {num_turnos} turnos de conversa...")
     for turno in range(num_turnos):
@@ -172,27 +234,27 @@ def gerar_conversa():
         print("Gerando pergunta do comprador...")
         if turno == 0:
             # Primeira pergunta mais específica
-            mensagens_comprador.append({"role": "user", "content": "Faça uma pergunta direta sobre um carro específico que você quer comprar."})
+            mensagem_instrucao = "Faça uma pergunta direta sobre um carro específico que você quer comprar."
+            # No primeiro turno, não há histórico
+            pergunta = gerar_resposta([], mensagem_instrucao, "comprador", regras_comprador)
         else:
-            # Próximas perguntas consideram o contexto
-            mensagens_comprador.append({"role": "user", "content": "Faça uma nova pergunta sobre o mesmo carro, considerando a resposta anterior do vendedor."})
+            # Próximas perguntas consideram o histórico da conversa
+            mensagem_instrucao = "Faça uma nova pergunta sobre o mesmo assunto, considerando a resposta anterior do vendedor."
+            pergunta = gerar_resposta(historico_conversa, mensagem_instrucao, "comprador", regras_comprador)
         
-        pergunta = gerar_resposta(mensagens_comprador)
-        conversa.append({"role": "comprador", "content": pergunta})
+        # Adiciona a pergunta ao histórico
+        historico_conversa.append({"role": "comprador", "content": pergunta})
         print(f"Comprador: {pergunta}")
 
         # Vendedor responde
         print("\nGerando resposta do vendedor...")
-        mensagens_vendedor.append({"role": "user", "content": pergunta})
-        resposta = gerar_resposta(mensagens_vendedor, max_tokens=True)  # Limita o tamanho da resposta
-        conversa.append({"role": "vendedor", "content": resposta})
+        resposta = gerar_resposta(historico_conversa, pergunta, "vendedor", regras_vendedor, max_tokens=True)
+        
+        # Adiciona a resposta ao histórico
+        historico_conversa.append({"role": "vendedor", "content": resposta})
         print(f"Vendedor: {resposta}")
 
-        # Atualiza o contexto
-        mensagens_comprador.append({"role": "assistant", "content": resposta})
-        mensagens_vendedor.append({"role": "assistant", "content": resposta})
-
-    return conversa, cenario["tipo"]
+    return historico_conversa, cenario["tipo"]
 
 if __name__ == "__main__":
     num_conversas = 5  # Número de conversas diferentes para gerar
