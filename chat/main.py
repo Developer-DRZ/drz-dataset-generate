@@ -1,24 +1,23 @@
 import os
 import json
 import random
-import google.generativeai as genai
+from openai import OpenAI
 from utils import salvar_conversa
 from dotenv import load_dotenv
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
 
-# Configuração do Gemini AI
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY não encontrada. Verifique se o arquivo .env existe e contém a chave.")
+# Configuração do OpenAI
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY não encontrada. Verifique se o arquivo .env existe e contém a chave.")
 
-# Configuração do modelo
+# Inicializa o cliente OpenAI
 try:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    client = OpenAI(api_key=OPENAI_API_KEY)
 except Exception as e:
-    raise Exception(f"Erro ao configurar o modelo Gemini: {str(e)}")
+    raise Exception(f"Erro ao configurar o cliente OpenAI: {str(e)}")
 
 # Cria o diretório 'data' se não existir
 os.makedirs('data', exist_ok=True)
@@ -110,7 +109,7 @@ def formatar_historico(historico, perspectiva):
 
 def criar_prompt_com_historico(historico, mensagem_atual, tipo_agente, regras_sistema):
     """
-    Cria um prompt formatado com histórico de conversa e a mensagem atual.
+    Cria um prompt formatado com histórico de conversa e a mensagem atual seguindo o template específico.
     
     Args:
         historico: Lista formatada de mensagens ['User: msg', 'Assistant: resp', ...]
@@ -121,7 +120,7 @@ def criar_prompt_com_historico(historico, mensagem_atual, tipo_agente, regras_si
     Returns:
         Prompt formatado com histórico e mensagem atual
     """
-    # Template do prompt com histórico
+    # Template do prompt com histórico exatamente como especificado
     template = f"""<|AgenteAtual|>{tipo_agente}<|AgenteAtual|>
 
 {regras_sistema}
@@ -136,9 +135,9 @@ Latest User Message:
 
     return template
 
-def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, temperatura=0.2, max_tokens=None):
+def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, temperatura=0.7, max_tokens=None):
     """
-    Gera uma resposta usando o Google Gemini AI com histórico de conversa.
+    Gera uma resposta usando a API do OpenAI GPT-4o com histórico de conversa.
     
     Args:
         historico: Lista de mensagens no formato {"role": "comprador"|"vendedor", "content": "mensagem"}
@@ -155,23 +154,29 @@ def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, tempe
     perspectiva = tipo_agente  # O agente que está gerando a resposta
     historico_formatado = formatar_historico(historico, perspectiva)
     
-    # Cria o prompt com histórico e mensagem atual
-    prompt = criar_prompt_com_historico(historico_formatado, mensagem_atual, tipo_agente, regras_sistema)
-    
-    # Adiciona instruções específicas de formatação, se necessário
+    # Adiciona instrução de tamanho máximo, se necessário
+    regras_completas = regras_sistema
     if max_tokens:
-        prompt += "\n\nIMPORTANTE: Use no máximo 2 frases curtas na sua resposta."
+        regras_completas += "\n\nIMPORTANTE: Use no máximo 2 frases curtas na sua resposta."
+    
+    # Cria o prompt completo seguindo o template especificado
+    prompt_completo = criar_prompt_com_historico(historico_formatado, mensagem_atual, tipo_agente, regras_completas)
     
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=temperatura,
-                candidate_count=1,
-                max_output_tokens=150 if max_tokens else 500
-            )
+        # Usa o prompt completo como conteúdo da mensagem do sistema
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": [{"type": "text", "text": prompt_completo}]},
+            ],
+            response_format={"type": "text"},
+            temperature=temperatura,
+            max_completion_tokens=150 if max_tokens else 500,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
         )
-        return response.text.strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Erro ao gerar resposta: {str(e)}")
         return "Desculpe, houve um erro na geração da resposta."
@@ -224,7 +229,7 @@ REGRAS OBRIGATÓRIAS:
     historico_conversa = []
     
     # Número de turnos de conversa
-    num_turnos = 6  # Aumentado para 6 turnos conforme solicitado
+    num_turnos = 6
 
     print(f"Gerando {num_turnos} turnos de conversa...")
     for turno in range(num_turnos):
