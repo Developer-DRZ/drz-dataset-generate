@@ -1,0 +1,22 @@
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribuição / empacotamento
+dist/
+build/
+*.egg-info/
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.*.local
+
+# Arquivos gerados
+data/
