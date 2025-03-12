@@ -107,33 +107,27 @@ def formatar_historico(historico, perspectiva):
     
     return historico_formatado
 
-def criar_prompt_com_historico(historico, mensagem_atual, tipo_agente, regras_sistema):
+def criar_prompt_template(historico, mensagem_atual, tipo_agente):
     """
-    Cria um prompt formatado com histórico de conversa e a mensagem atual seguindo o template específico.
+    Cria o template exato para o prompt do usuário.
     
     Args:
         historico: Lista formatada de mensagens ['User: msg', 'Assistant: resp', ...]
         mensagem_atual: A mensagem mais recente do usuário
         tipo_agente: "comprador" ou "vendedor"
-        regras_sistema: Regras específicas para este agente
         
     Returns:
-        Prompt formatado com histórico e mensagem atual
+        String com o template formatado para o prompt do usuário
     """
-    # Template do prompt com histórico exatamente como especificado
-    template = f"""<|AgenteAtual|>{tipo_agente}<|AgenteAtual|>
+    return f"""<|AgenteAtual|>{tipo_agente}<|AgenteAtual|>
 
-{regras_sistema}
-
-Use the conversation history to provide context and respond to the user's message.
+You are a specialized AI assistant. Use the conversation history to provide context and respond to the user's message.
 
 Conversation History:
 {historico}
 
 Latest User Message:
 {mensagem_atual}"""
-
-    return template
 
 def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, temperatura=0.7, max_tokens=None):
     """
@@ -148,26 +142,28 @@ def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, tempe
         max_tokens: Se definido, limita o tamanho da resposta
         
     Returns:
-        Texto da resposta gerada
+        Tupla (resposta gerada, sistema_prompt, user_prompt)
     """
     # Formata o histórico conforme a perspectiva do agente
     perspectiva = tipo_agente  # O agente que está gerando a resposta
     historico_formatado = formatar_historico(historico, perspectiva)
     
-    # Adiciona instrução de tamanho máximo, se necessário
-    regras_completas = regras_sistema
+    # Adiciona instrução de tamanho máximo ao sistema, se necessário
+    sistema_prompt = regras_sistema
     if max_tokens:
-        regras_completas += "\n\nIMPORTANTE: Use no máximo 2 frases curtas na sua resposta."
+        sistema_prompt += "\n\nIMPORTANTE: Use no máximo 2 frases curtas na sua resposta."
     
-    # Cria o prompt completo seguindo o template especificado
-    prompt_completo = criar_prompt_com_historico(historico_formatado, mensagem_atual, tipo_agente, regras_completas)
+    # Cria o prompt do usuário com o template exato
+    user_prompt = criar_prompt_template(historico_formatado, mensagem_atual, tipo_agente)
     
+    # Prepara os prompts para a API
     try:
-        # Usa o prompt completo como conteúdo da mensagem do sistema
+        # Chama a API com a estrutura completa de mensagens
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": [{"type": "text", "text": prompt_completo}]},
+                {"role": "system", "content": [{"type": "text", "text": sistema_prompt}]},
+                {"role": "user", "content": [{"type": "text", "text": user_prompt}]}
             ],
             response_format={"type": "text"},
             temperature=temperatura,
@@ -176,10 +172,10 @@ def gerar_resposta(historico, mensagem_atual, tipo_agente, regras_sistema, tempe
             frequency_penalty=0,
             presence_penalty=0
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), sistema_prompt, user_prompt
     except Exception as e:
         print(f"Erro ao gerar resposta: {str(e)}")
-        return "Desculpe, houve um erro na geração da resposta."
+        return "Desculpe, houve um erro na geração da resposta.", sistema_prompt, user_prompt
 
 def gerar_conversa():
     """
@@ -203,7 +199,7 @@ def gerar_conversa():
         valor = random.choice(cenario["valores"])
         contexto = cenario["contexto"].format(categoria=categoria, valor=valor)
 
-    # Regras específicas para cada agente
+    # Regras específicas para cada agente (sistema prompts)
     regras_comprador = f"""Você é um cliente interessado em comprar um carro.
     
 {contexto}
@@ -225,8 +221,11 @@ REGRAS OBRIGATÓRIAS:
 5. NUNCA diga que não tem acesso à informação
 6. Use valores de mercado realistas"""
 
-    # Histórico de conversa completo
+    # Histórico de conversa completo (apenas mensagens de conteúdo)
     historico_conversa = []
+    
+    # Histórico completo com prompts e mensagens para salvar
+    conversa_completa = []
     
     # Número de turnos de conversa
     num_turnos = 6
@@ -241,25 +240,66 @@ REGRAS OBRIGATÓRIAS:
             # Primeira pergunta mais específica
             mensagem_instrucao = "Faça uma pergunta direta sobre um carro específico que você quer comprar."
             # No primeiro turno, não há histórico
-            pergunta = gerar_resposta([], mensagem_instrucao, "comprador", regras_comprador)
+            pergunta, sistema_comprador, user_prompt_comprador = gerar_resposta(
+                [], mensagem_instrucao, "comprador", regras_comprador
+            )
         else:
             # Próximas perguntas consideram o histórico da conversa
             mensagem_instrucao = "Faça uma nova pergunta sobre o mesmo assunto, considerando a resposta anterior do vendedor."
-            pergunta = gerar_resposta(historico_conversa, mensagem_instrucao, "comprador", regras_comprador)
+            pergunta, sistema_comprador, user_prompt_comprador = gerar_resposta(
+                historico_conversa, mensagem_instrucao, "comprador", regras_comprador
+            )
         
-        # Adiciona a pergunta ao histórico
+        # Adiciona a pergunta ao histórico de conversa
         historico_conversa.append({"role": "comprador", "content": pergunta})
+        
+        # Adiciona todos os detalhes à conversa completa
+        conversa_completa.append({
+            "turno": turno + 1,
+            "agente": "comprador",
+            "sistema_prompt": sistema_comprador,
+            "user_prompt": user_prompt_comprador,
+            "resposta": pergunta
+        })
+        
         print(f"Comprador: {pergunta}")
 
         # Vendedor responde
         print("\nGerando resposta do vendedor...")
-        resposta = gerar_resposta(historico_conversa, pergunta, "vendedor", regras_vendedor, max_tokens=True)
+        resposta, sistema_vendedor, user_prompt_vendedor = gerar_resposta(
+            historico_conversa, pergunta, "vendedor", regras_vendedor, max_tokens=True
+        )
         
-        # Adiciona a resposta ao histórico
+        # Adiciona a resposta ao histórico de conversa
         historico_conversa.append({"role": "vendedor", "content": resposta})
+        
+        # Adiciona todos os detalhes à conversa completa
+        conversa_completa.append({
+            "turno": turno + 1,
+            "agente": "vendedor",
+            "sistema_prompt": sistema_vendedor,
+            "user_prompt": user_prompt_vendedor,
+            "resposta": resposta
+        })
+        
         print(f"Vendedor: {resposta}")
 
-    return historico_conversa, cenario["tipo"]
+    return conversa_completa, cenario["tipo"]
+
+def salvar_conversa_completa(conversa, caminho_arquivo):
+    """
+    Salva a conversa completa em um arquivo JSON.
+    
+    Args:
+        conversa: Lista completa com prompts e mensagens
+        caminho_arquivo: Caminho do arquivo onde a conversa será salva
+    """
+    try:
+        with open(caminho_arquivo, 'w', encoding='utf-8') as f:
+            json.dump(conversa, f, ensure_ascii=False, indent=4)
+        print(f"Conversa salva com sucesso em: {caminho_arquivo}")
+    except Exception as e:
+        print(f"Erro ao salvar conversa: {str(e)}")
 
 if __name__ == "__main__":
     num_conversas = 5  # Número de conversas diferentes para gerar
@@ -267,5 +307,5 @@ if __name__ == "__main__":
     for i in range(num_conversas):
         conversa, tipo_cenario = gerar_conversa()
         arquivo_saida = f"data/conversa_{tipo_cenario}_{i+1}.json"
-        salvar_conversa(conversa, arquivo_saida)
+        salvar_conversa_completa(conversa, arquivo_saida)
         print(f"\nConversa {i+1} ({tipo_cenario}) gerada e salva em: {arquivo_saida}")
