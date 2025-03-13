@@ -473,7 +473,7 @@ You have access to memory. It contains the conversation history in an array with
 # Main Objectives
 - **Collect information efficiently**: Obtain all necessary details without repeating questions about information already provided.
 - **Extract conversation history**: Analyze the user's input to identify and update the filters: brand, title, year, price. state should be retrieved from memory.
-- **Avoid redundancy**: Only request information that hasn’t been provided yet, updating the data based on the current input.
+- **Avoid redundancy**: Only request information that hasn't been provided yet, updating the data based on the current input.
 - **Override older data with newer data**: If the user contradicts or changes previous preferences, update the relevant field(s) with the most recent input.
 
 # Response Format
@@ -481,7 +481,7 @@ Strictly follow this structure (Thought, NextAgent and FinalResponse):
 
 ---
 Input: The message from the user.  
-Thought: Explain your reasoning clearly and concisely. Justify the next action based on the user’s input and details already collected. Highlight why missing details (especially brand, salePrice, or state) are essential. If the user modifies a previously provided field, explain how you override the old data.   
+Thought: Explain your reasoning clearly and concisely. Justify the next action based on the user's input and details already collected. Highlight why missing details (especially brand, salePrice, or state) are essential. If the user modifies a previously provided field, explain how you override the old data.   
 ActionInput: A JSON object with all parameters collected so far ("brand", "salePrice", "state"...). Use information from the current input and conversation history, but override any conflicting older values with the newest input.  
 NextAgent: "ListingAgent" only when "brand" or "model", "salePrice", and "state" are present; otherwise, leave empty.  
 FinalResponse: "Movendo para o próximo agente" (if brand or model, salePrice, and state are collected) or a polite request in Brazilian Portuguese for missing details (e.g., "Por favor, informe o preço do carro."). Never ask for the "state", always retrieve it from memory.  
@@ -489,11 +489,11 @@ FinalResponse: "Movendo para o próximo agente" (if brand or model, salePrice, a
 
 # Rules
 - **Prioritize the current input**: If the user provides clear information (e.g., "the brand is Chevrolet"), record it in ActionInput immediately, even if the history contains something different (e.g., "Honda"). Use the history only to fill fields not mentioned in the current input.
-- **If the user’s new statement conflicts with previously stored data in memory, override the old data in ActionInput with the new statement.**
-- **Avoid unnecessary clarifications**: If the input already answers a mandatory field (brand or model, salePrice, or state), don’t question it unless it’s contradictory or ambiguous.
+- **If the user's new statement conflicts with previously stored data in memory, override the old data in ActionInput with the new statement.**
+- **Avoid unnecessary clarifications**: If the input already answers a mandatory field (brand or model, salePrice, or state), don't question it unless it's contradictory or ambiguous.
 - **Use the model if provided**: Theres no need to ask for the brand if the user already provided the model of the car (e.g. "Onix", "Renegade")
 - **Update ActionInput correctly**: The JSON in ActionInput must always reflect the current state of collected data, combining history and the current input, with priority given to the input in case of conflict.
-- **Request only what’s missing**: After updating ActionInput, ask only for the mandatory fields still missing in FinalResponse.
+- **Request only what's missing**: After updating ActionInput, ask only for the mandatory fields still missing in FinalResponse.
 - **Transition to the next agent**: If "brand" (or "model"), "salePrice", and "state" are filled, set NextAgent to "ListingAgent" and FinalResponse to "Movendo para o próximo agente".
 - **The "state" returned in ActionInput must be a Brazilian state, retrieved from memory, with exactly 2 letters (e.g., "São Paulo" -> "SP").**
 - **Color Must Be Masculine**: If the user provides a color in feminine form (e.g., "preta", "branca", "vermelha"), always convert it to masculine (e.g., "preto", "branco", "vermelho") when storing in ActionInput.
@@ -514,7 +514,7 @@ FinalResponse: "Movendo para o próximo agente"
 **Input**: O que você tem carro com fipe até 40 mil?  
 **Expected Output**:
 ---
-Thought: The user specified a salePrice limit (40000). I will assume they meant "salePrice" and retrieve brand and state from memory if available. Since this example lacks prior context, I’ll request the missing fields.  
+Thought: The user specified a salePrice limit (40000). I will assume they meant "salePrice" and retrieve brand and state from memory if available. Since this example lacks prior context, I'll request the missing fields.  
 ActionInput: {"salePrice": "40000"}  
 NextAgent:   
 FinalResponse: Por favor, informe os detalhes para que eu possa lhe ajudar.  
@@ -533,9 +533,9 @@ FinalResponse: Por favor, informe o preço do carro.
 ---
 
 # Implementation Tips
-- If you maintain a conversation history snippet, label it as **"Filtros atuais (dados mais recentes)"** (or similar) before the JSON, to indicate they’re subject to change.
-- Analyze the user’s input to extract conversation history, but always use the newest input to override conflicting older details.
-- Adapt keywords based on your users’ vocabulary (e.g., "used", "new", "value", "cash").
+- If you maintain a conversation history snippet, label it as **"Filtros atuais (dados mais recentes)"** (or similar) before the JSON, to indicate they're subject to change.
+- Analyze the user's input to extract conversation history, but always use the newest input to override conflicting older details.
+- Adapt keywords based on your users' vocabulary (e.g., "used", "new", "value", "cash").
 - Ensure the output strictly follows the defined format, without variations.
 - Always store color in masculine form if the user uses a feminine variant.
 - You only need the brand or the model, dont require both. The model of the car is enought. As well as only the brand.
@@ -626,62 +626,203 @@ def salvar_conversa_completa(conversa, caminho_arquivo):
         print(f"Erro ao salvar conversa: {str(e)}")
 
 if __name__ == "__main__":
-    # Número de conversas a gerar
-    num_conversas = 5  # Reduzido para 5 para evitar atingir limites
+    # Modificação: Gerar uma conversa para cada tipo de cenário
+    # Em vez de gerar um número fixo de conversas aleatórias
     
-    # Número de turnos por conversa
-    turnos_por_conversa = 4  # Reduzido para 4 para economizar chamadas à API
+    # Lista de todos os tipos de cenários disponíveis
+    tipos_cenarios = [cenario["tipo"] for cenario in CENARIOS_COMPRA]
+    print(f"Iniciando geração de conversas para {len(tipos_cenarios)} tipos de cenários...")
     
-    print(f"Iniciando geração de {num_conversas} conversas com {turnos_por_conversa} turnos cada...")
+    # Dicionário para armazenar todas as conversas
+    todas_conversas = {}
     
-    conversas_geradas = 0
-    tentativas = 0
-    max_tentativas = 10
+    # Contador para nomear os arquivos de saída
+    contador_arquivos = 1
     
-    while conversas_geradas < num_conversas and tentativas < max_tentativas:
-        tentativas += 1
-        try:
-            print(f"\n--- Gerando conversa {conversas_geradas + 1}/{num_conversas} (tentativa {tentativas}) ---")
-            
-            # Gera a conversa
-            conversa, tipo_cenario, intencao = gerar_conversa()
-            
-            # Verifica se a conversa tem conteúdo válido
-            if len(conversa) < 2:
-                print("Conversa inválida ou muito curta. Tentando novamente...")
-                time.sleep(5)  # Espera 5 segundos antes de tentar novamente
-                continue
-            
-            # Cria um objeto com metadados e a conversa
-            dados_completos = {
-                "metadados": {
-                    "tipo_cenario": tipo_cenario,
-                    "intencao": intencao,
-                    "id": f"{tipo_cenario}_{conversas_geradas+1}"
-                },
-                "conversa": conversa
-            }
-            
-            # Salva a conversa
-            arquivo_saida = f"data/conversa_{tipo_cenario}_{conversas_geradas+1}.json"
-            salvar_conversa_completa(dados_completos, arquivo_saida)
-            print(f"\nConversa {conversas_geradas+1} ({tipo_cenario}) gerada e salva em: {arquivo_saida}")
-            print(f"Intenção do comprador: {intencao}")
-            
-            # Incrementa o contador de conversas geradas com sucesso
-            conversas_geradas += 1
-            
-            # Espera entre as conversas para evitar atingir limites de taxa
-            if conversas_geradas < num_conversas:
-                delay = random.randint(3, 7)  # Delay aleatório entre 3 e 7 segundos
-                print(f"Aguardando {delay} segundos antes da próxima conversa...")
-                time.sleep(delay)
+    # Número máximo de tentativas por cenário
+    max_tentativas_por_cenario = 3
+    
+    # Para cada tipo de cenário, gerar uma conversa
+    for tipo_cenario in tipos_cenarios:
+        print(f"\n--- Gerando conversa para o cenário: {tipo_cenario} ---")
+        
+        # Encontra o cenário correspondente
+        cenario = next(c for c in CENARIOS_COMPRA if c["tipo"] == tipo_cenario)
+        
+        # Seleciona uma intenção aleatória para este cenário
+        intencao = random.choice(cenario["intencoes"])
+        
+        # Tentativas para este cenário
+        tentativas = 0
+        conversa_gerada = False
+        
+        while not conversa_gerada and tentativas < max_tentativas_por_cenario:
+            tentativas += 1
+            try:
+                print(f"Tentativa {tentativas}/{max_tentativas_por_cenario} para o cenário {tipo_cenario}")
                 
-        except Exception as e:
-            print(f"Erro ao gerar conversa: {str(e)}")
-            print("Aguardando 10 segundos antes de tentar novamente...")
-            time.sleep(10)
+                # Prepara o contexto específico do cenário
+                if tipo_cenario == "orcamento":
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(valor=valor)
+                elif tipo_cenario == "carro_especifico":
+                    modelo, ano = random.choice(cenario["modelos"])
+                    contexto = cenario["contexto"].format(modelo=modelo, ano=ano)
+                elif tipo_cenario == "marca_especifica":
+                    marca = random.choice(cenario["marcas"])
+                    contexto = cenario["contexto"].format(marca=marca)
+                elif tipo_cenario == "categoria":
+                    categoria = random.choice(cenario["categorias"])
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(categoria=categoria, valor=valor)
+                elif tipo_cenario == "primeira_compra":
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(valor=valor)
+                elif tipo_cenario == "familia":
+                    tamanho = random.choice(cenario["tamanhos"])
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(tamanho=tamanho, valor=valor)
+                elif tipo_cenario == "troca":
+                    carro_atual, ano_atual = random.choice(cenario["carros_atuais"])
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(carro_atual=carro_atual, ano_atual=ano_atual, valor=valor)
+                elif tipo_cenario == "uso_especifico":
+                    uso = random.choice(cenario["usos"])
+                    valor = random.choice(cenario["valores"])
+                    contexto = cenario["contexto"].format(uso=uso, valor=valor)
+                elif tipo_cenario == "financiamento":
+                    parcela = random.choice(cenario["parcelas"])
+                    entrada = random.choice(cenario["entradas"])
+                    contexto = cenario["contexto"].format(parcela=parcela, entrada=entrada)
+                
+                # Define as regras para o comprador
+                regras_comprador = f"""Você é um cliente interessado em comprar um carro.
+                
+                {contexto}
+                
+                SUA INTENÇÃO PRINCIPAL:
+                {intencao}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Faça APENAS UMA pergunta por vez
+                2. Seja direto e objetivo
+                3. Use português formal
+                4. Mantenha o contexto da conversa
+                5. Siga uma sequência lógica de perguntas
+                6. Suas perguntas devem refletir sua intenção principal"""
+                
+                # Define as regras para o vendedor (mantém as mesmas)
+                regras_vendedor = """
+                You are an agent specialized in our car sales system...
+                """  # Mantém o resto do prompt do vendedor
+                
+                # Gera a conversa
+                historico_conversa = []
+                conversa_completa = []
+                
+                # Número de turnos de conversa
+                num_turnos = 6
+                
+                print(f"Gerando {num_turnos} turnos de conversa...")
+                for turno in range(num_turnos):
+                    print(f"\nTurno {turno + 1}/{num_turnos}")
+                    
+                    # Comprador faz uma pergunta
+                    print("Gerando pergunta do comprador...")
+                    if turno == 0:
+                        # Primeira pergunta mais específica
+                        mensagem_instrucao = "Faça uma pergunta direta sobre um carro específico que você quer comprar."
+                        # No primeiro turno, não há histórico
+                        pergunta, sistema_comprador, user_prompt_comprador = gerar_resposta(
+                            [], mensagem_instrucao, "comprador", regras_comprador
+                        )
+                    else:
+                        # Próximas perguntas consideram o histórico da conversa
+                        mensagem_instrucao = "Faça uma nova pergunta sobre o mesmo assunto, considerando a resposta anterior do vendedor."
+                        pergunta, sistema_comprador, user_prompt_comprador = gerar_resposta(
+                            historico_conversa, mensagem_instrucao, "comprador", regras_comprador
+                        )
+                    
+                    # Adiciona a pergunta ao histórico de conversa
+                    historico_conversa.append({"role": "comprador", "content": pergunta})
+                    
+                    # Adiciona todos os detalhes à conversa completa
+                    conversa_completa.append({
+                        "turno": turno + 1,
+                        "agente": "comprador",
+                        "sistema_prompt": sistema_comprador,
+                        "user_prompt": user_prompt_comprador,
+                        "resposta": pergunta
+                    })
+                    
+                    print(f"Comprador: {pergunta}")
+                    
+                    # Vendedor responde
+                    print("\nGerando resposta do vendedor...")
+                    resposta, sistema_vendedor, user_prompt_vendedor = gerar_resposta(
+                        historico_conversa, pergunta, "vendedor", regras_vendedor, max_tokens=True
+                    )
+                    
+                    # Adiciona a resposta ao histórico de conversa
+                    historico_conversa.append({"role": "vendedor", "content": resposta})
+                    
+                    # Adiciona todos os detalhes à conversa completa
+                    conversa_completa.append({
+                        "turno": turno + 1,
+                        "agente": "vendedor",
+                        "sistema_prompt": sistema_vendedor,
+                        "user_prompt": user_prompt_vendedor,
+                        "resposta": resposta
+                    })
+                    
+                    print(f"Vendedor: {resposta}")
+                
+                # Verifica se a conversa tem conteúdo válido
+                if len(conversa_completa) < 2:
+                    print("Conversa inválida ou muito curta. Tentando novamente...")
+                    time.sleep(5)  # Espera 5 segundos antes de tentar novamente
+                    continue
+                
+                # Cria um objeto com metadados e a conversa
+                dados_completos = {
+                    "metadados": {
+                        "tipo_cenario": tipo_cenario,
+                        "intencao": intencao,
+                        "id": f"{tipo_cenario}_1"
+                    },
+                    "conversa": conversa_completa
+                }
+                
+                # Adiciona a conversa ao dicionário de todas as conversas
+                todas_conversas[tipo_cenario] = dados_completos
+                
+                print(f"Conversa para o cenário {tipo_cenario} gerada com sucesso!")
+                conversa_gerada = True
+                
+            except Exception as e:
+                print(f"Erro ao gerar conversa para o cenário {tipo_cenario}: {str(e)}")
+                print("Aguardando 10 segundos antes de tentar novamente...")
+                time.sleep(10)
+        
+        # Se não conseguiu gerar a conversa após todas as tentativas
+        if not conversa_gerada:
+            print(f"Não foi possível gerar conversa para o cenário {tipo_cenario} após {max_tentativas_por_cenario} tentativas.")
+        
+        # Espera entre as conversas para evitar atingir limites de taxa
+        if tipo_cenario != tipos_cenarios[-1]:  # Se não for o último cenário
+            delay = random.randint(3, 7)  # Delay aleatório entre 3 e 7 segundos
+            print(f"Aguardando {delay} segundos antes do próximo cenário...")
+            time.sleep(delay)
     
-    print(f"\nGeração concluída! {conversas_geradas} conversas geradas com sucesso.")
-    if conversas_geradas < num_conversas:
-        print(f"Aviso: Apenas {conversas_geradas} de {num_conversas} conversas foram geradas devido a erros ou limites de API.")
+    # Salva todas as conversas em um único arquivo
+    arquivo_saida = f"data/metadata{contador_arquivos}.json"
+    try:
+        with open(arquivo_saida, 'w', encoding='utf-8') as f:
+            json.dump(todas_conversas, f, ensure_ascii=False, indent=4)
+        print(f"\nTodas as conversas foram salvas com sucesso em: {arquivo_saida}")
+    except Exception as e:
+        print(f"Erro ao salvar todas as conversas: {str(e)}")
+    
+    print(f"\nGeração concluída! {len(todas_conversas)} conversas geradas com sucesso.")
+    if len(todas_conversas) < len(tipos_cenarios):
+        print(f"Aviso: Apenas {len(todas_conversas)} de {len(tipos_cenarios)} conversas foram geradas devido a erros ou limites de API.")
